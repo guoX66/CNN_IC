@@ -62,7 +62,7 @@ if __name__ == '__main__':
             result = predict_class(path, model, modelinfo, class_dict)
             result_dict[result] += 1
         max_key = max(result_dict, key=lambda k: result_dict[k])  # 股价最高的股票名
-        if result_dict[max_key]/ len(model_list) >= min_pr:
+        if result_dict[max_key] / len(model_list) >= min_pr:
             ans = max_key
             txt_list.append([file, ans])
             print(f'{file}的预测类别为{ans}')
@@ -78,3 +78,4 @@ if __name__ == '__main__':
     ws_ = wb['Sheet']
     wb.remove(ws_)
     wb.save(f'log/Result-{date_time}.xlsx')
+    print(f'预测结果保存在log/Result-{date_time}.xlsx中')
