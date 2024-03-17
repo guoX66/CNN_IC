@@ -67,10 +67,26 @@ python train.py --model resnet18 --epoch 100 --batch_size 4 --val_present 0.2 --
 
 按照二中步骤运行divide.py脚本对数据集进行拆分后，可以对训练好模型进行测试
 
-将模型移到t_model文件夹下，运行test.py脚本
+将模型移到t_model文件夹下（请不要改变其文件名），运行test.py脚本
 
 ```bash
 python test.py --model resnet18
 ```
 
 测试结果保存在log文件夹下
+
+
+
+# 五、预测
+
+本项目采用多类模型预测，根据不同类模型的预测结果结合置信阈值得出最终结果
+
+若最多数量的预测结果占比大于置信阈值，则输出该预测结果，否则认为是未知类别
+
+将需要预测的图像放入predict_img文件夹中，训练好的模型放入t_model文件夹中（请不要改变其文件名），运行predict.py脚本，其中min_pr为置信阈值
+
+```bash
+python predict.py --predict_path predict_img --min_pr 0.9
+```
+
+预测结果将以excel格式保存在log文件夹中

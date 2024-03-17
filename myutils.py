@@ -6,7 +6,7 @@ import torch
 import os
 import matplotlib.pyplot as plt
 import time
-
+from PIL import Image
 
 if torch.cuda.is_available():
     gpu_num = torch.cuda.device_count()

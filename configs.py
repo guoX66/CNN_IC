@@ -9,6 +9,8 @@ parser.add_argument('--test_present', type=float, default=0.1)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--step_size', type=int, default=1)
 parser.add_argument('--gamma', type=float, default=0.95)
+parser.add_argument('--min_pr', type=float, default=4 / 5)
+parser.add_argument('--predict_path', type=str, default='predict_img')
 args = parser.parse_args()
 
 
@@ -32,6 +34,3 @@ class TrainImg:
         self.step_size = args.step_size
         self.gamma = args.gamma
         self.epoch = args.epoch  # 设置迭代次数
-
-
-
