@@ -47,7 +47,7 @@ pip install -r requirements.txt
             ...
 ```
 
-若需要对模型进行测试，可以运行divide.py脚本对数据集进行拆分：
+运行divide.py脚本对数据集进行拆分：
 
 ```bash
 python divide.py --test_present 0.1
@@ -63,7 +63,7 @@ python train.py --model resnet18 --epoch 100 --batch_size 4 --val_present 0.2 --
 
 训练好的模型和过程记录保存在log/train_process文件夹下
 
-# **四、模型测试
+# 四、模型测试
 
 按照二中步骤运行divide.py脚本对数据集进行拆分后，可以对训练好模型进行测试
 
@@ -79,7 +79,7 @@ python test.py --model resnet18
 
 # 五、预测
 
-本项目采用多类模型预测，根据不同类模型的预测结果结合置信阈值得出最终结果
+本项目采用多模型集成预测，根据不同类模型的预测结果结合置信阈值得出最终结果
 
 若最多数量的预测结果占比大于置信阈值，则输出该预测结果，否则认为是未知类别
 

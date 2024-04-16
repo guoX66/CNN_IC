@@ -1,4 +1,7 @@
 import shutil
+import sys
+
+import pynvml
 import torch.nn as nn
 import numpy as np
 import json
@@ -6,16 +9,7 @@ import torch
 import os
 import matplotlib.pyplot as plt
 import time
-from PIL import Image
-
-if torch.cuda.is_available():
-    gpu_num = torch.cuda.device_count()
-    device = torch.device('cuda')
-    gpus = [i for i in range(gpu_num)]
-    torch.cuda.set_device('cuda:{}'.format(gpus[0]))
-else:
-    device = torch.device('cpu')
-    gpus = []
+import yaml
 
 
 def remove_file(old_path, new_path):
@@ -24,49 +18,6 @@ def remove_file(old_path, new_path):
         src = os.path.join(old_path, file)
         dst = os.path.join(new_path, file)
         shutil.move(src, dst)
-
-
-def make_model(modelinfo, n, path, device):
-    model_ft = sele_model(modelinfo)
-    layer_list = get_layers_name(model_ft)
-    last_layers_name = layer_list[-1][0]
-    in_features = layer_list[-1][1].in_features
-    layer1 = nn.Linear(in_features, n)
-    _set_module(model_ft, last_layers_name, layer1)
-    model_ft.load_state_dict(
-        {k.replace('module.', ''): v for k, v in torch.load(path, map_location=device).items()})
-    if isinstance(model_ft, torch.nn.DataParallel):
-        model_ft = model_ft.module
-    return model_ft
-
-
-def make_train_model(modelinfo, n):
-    model_ft = sele_model(modelinfo, train=True)
-    layer_list = get_layers_name(model_ft)
-    last_layers_name = layer_list[-1][0]
-    in_features = layer_list[-1][1].in_features
-    layer1 = nn.Linear(in_features, n)
-    _set_module(model_ft, last_layers_name, layer1)
-    return model_ft
-
-
-def sele_model(Model, train=False):
-    from models import model_dict
-    if train:
-        return model_dict[Model.model]
-    else:
-        return model_dict[Model]
-
-
-def show(c, model, txt_list):
-    layer_list = get_layers_name(model)  # 获取模型各层信息
-    if c.show_mode == 'All':
-        for layers in layer_list:
-            txt_list.append(str(layers) + '\r\n')
-
-    elif c.show_mode == 'Simple':
-        for layers in layer_list:
-            txt_list.append(str(layers[0]) + '\r\n')
 
 
 def get_label_list(imgpath):
@@ -93,25 +44,6 @@ def get_label_list(imgpath):
     return label_name_list, label_dict, label_list
 
 
-def bar(i, t, start, des, train=True, loss=0, acc=0):
-    l = 50
-    f_p = i / t
-    n_p = (t - i) / t
-    finsh = "▓" * int(f_p * l)
-    need_do = "-" * int(n_p * l)
-    progress = f_p * 100
-    dur = time.perf_counter() - start
-    if train:
-        proc = "\r{}({}/{}轮):{:^3.2f}%[{}->{}] 用时:{:.2f}s 验证集上损失:{:.3f} 正确率: {:.2f} %".format(des, i, t,
-                                                                                                          progress,
-                                                                                                          finsh,
-                                                                                                          need_do, dur,
-                                                                                                          loss, acc)
-    else:
-        proc = "\r{}:{:^3.2f}%[{}->{}] 用时:{:.2f}s".format(des, progress, finsh, need_do, dur)
-    print(proc, end="")
-
-
 def add_log(txt, txt_list, is_print=True):
     if is_print:
         print(txt)
@@ -128,76 +60,167 @@ def write_log(in_path, filename, txt_list):
         f.write(content)
 
 
-def train_dir(filename):
+def get_gpu_usage(gpu_id):
     try:
-        os.mkdir('log/train_process')
-    except:
-        pass
-    file_path = 'log/train_process/' + filename
-    try:
-        os.mkdir(file_path)
-    except:
-        pass
+        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
+        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        gpu_utilization = util.gpu
+        memory_use = '%.2f' % (mem_info.used / (1024 ** 3))
+        memory_total = '%.2f' % (mem_info.total / (1024 ** 3))
+        return gpu_utilization, memory_use, memory_total
+    except pynvml.NVMLError as error:
+        print(f"Failed to get GPU usage: {error}")
+        return None, None, None
 
 
-def process(img_paths):
-    seq = []
-    for i in img_paths:
-        train_label = int(i[1])
-        print(train_label)
-        train_label = torch.IntTensor([train_label])
-        print(train_label)
-    return seq
+def train_bar(args):
+    pynvml.nvmlInit()
+    t_epoch, t_batch, start, epoch, batch, train_loss, loss, acc = args
+    # 获取GPU句柄，这里假设你只有一个GPU
+    l = 30
+    f_p = epoch / t_epoch
+    f_n = int(f_p * l)
+    finsh = "▓" * f_n
+    need_do = "-" * (l - f_n)
+    e_process = finsh + need_do + '|'
+
+    l2 = 15
+    f_p_b = batch / t_batch
+    f_n = int(f_p_b * l2)
+    finsh_b = "▓" * f_n
+    need_b = "-" * (l2 - f_n)
+    batch_process = finsh_b + need_b + '|'
+
+    dur = time.perf_counter() - start
+    finish_epoch = epoch - 1 + f_p_b
+    res = (t_epoch - finish_epoch) / (finish_epoch / dur)
+
+    a = ("%-11s" + "%-15s" + "%-11s" * 2 + "%-17s" + "%-11s" * 2 + "%-33s" + "%-20s") % (
+        "Epoch",
+        "GPU0_men",
+        "GPU0_use",
+        "batch_loss",
+        "batch_process",
+        "val_loss",
+        "val_acc",
+        "epoch_process",
+        "time"
+    )
+    if epoch <= 1 and batch <= 1:
+        print(a)
+    # 获取GPU利用率和内存占用率
+    gpu_util, gpu_mem_use, gpu_mem_total = get_gpu_usage(0)
+    gpu_mem_util = str(gpu_mem_use) + '/' + str(gpu_mem_total) + 'GB'
+    gpu_util = str(gpu_util) + '%'
+    if loss is not None:
+        loss = "%.3f" % loss
+    if acc is not None:
+        acc = "%.3f" % acc + '%'
+    epochs = str(epoch) + '/' + str(t_epoch)
+    proc = "\r{:10s} {:14s} {:10s} {:10s} {:16s} {:10s} {:10s} {:31s} {:.2f}s/{:.2f}s".format(
+        epochs, gpu_mem_util, gpu_util, str(train_loss), batch_process, str(loss), str(acc), e_process, dur,
+        res)
+    sys.stdout.write(proc)
+    sys.stdout.flush()
+    if epoch == t_epoch and batch == t_batch:
+        print()
 
 
-def _set_module(model, submodule_key, module):
-    tokens = submodule_key.split('.')
-    sub_tokens = tokens[:-1]
-    cur_mod = model
-    for s in sub_tokens:
-        cur_mod = getattr(cur_mod, s)
-    setattr(cur_mod, tokens[-1], module)
+def bar(i, total, start, des):
+    l = 30
+    f_p = i / total
+    n_p = (total - i) / total
+    finsh = "▓" * int(f_p * l)
+    need_do = "-" * int(n_p * l)
+    progress = f_p * 100
+    dur = time.perf_counter() - start
+    res = (total - i) / (i / dur)
+    proc = "\r{}({}/{}):{:^3.2f}%[{}->{}] time:{:.2f}s/{:.2f}s".format(
+        des, i, total, progress, finsh, need_do, dur, res)
+    sys.stdout.write(proc)
+    sys.stdout.flush()
+    if i == total:
+        print()
 
 
-def get_layers_name(model):
-    layer_list = []
-    for layer in model.named_modules():
-        layer_list.append(layer)
-    return layer_list
+def ini_env():
+    import torch
+    import platform
+    if torch.cuda.is_available():
+        gpu_num = torch.cuda.device_count()
+        device_name = []
+        for i in range(gpu_num):
+            device_name.append(str(i) + '  ' + torch.cuda.get_device_name(i))
+        device = torch.device('cuda')
+        gpus = [i for i in range(gpu_num)]
+        torch.cuda.set_device('cuda:{}'.format(gpus[0]))
+    else:
+        device_name = ['cpu']
+        device = torch.device('cpu')
+        gpus = []
+    os_name = str(platform.system())
+    if os_name == 'Windows':
+        num_workers = 0
+    else:
+        num_workers = 32
+    return device, gpus, num_workers, device_name
 
 
-def get_layers(model):
-    layer_list = []
-    for layer in model.modules():
-        layer_list.append(layer)
-    return layer_list
+def make_dir(path):
+    import os
+    base_path = os.path.dirname(path)
+    if base_path:
+        os.makedirs(base_path, exist_ok=True)
 
 
-def write_json(test_dict, path):
-    try:
-        os.mkdir('log')
-    except:
-        pass
-    path = os.path.join('log', path)
-    json_str = json.dumps(test_dict)
-    with open(f'{path}.json', 'w') as json_file:
-        json_file.write(json_str)
+def jy_deal(path, mode, dic=None):
+    make_dir(path)
+    jy = path.split('.')[-1]
+    if jy == 'json':
+        import json
+        if mode == 'w':
+            with open(path, mode, encoding="utf-8") as f:
+                json.dump(dic, f)
+        elif mode == 'r':
+            with open(path, mode, encoding='UTF-8') as f:
+                res = json.load(f)
+            return res
+        else:
+            raise ValueError(f'mode {mode} not supported')
+    elif jy == 'yaml':
+
+        if mode == 'w':
+            with open(path, mode, encoding="utf-8") as f:
+                yaml.dump(dic, f)
+        elif mode == 'r':
+            with open(path, mode, encoding='utf-8') as f:
+                res = yaml.load(f.read(), Loader=yaml.FullLoader)
+            return res
+        else:
+            raise ValueError(f'mode {mode} not supported')
+    else:
+        raise ValueError('invalid file')
 
 
-def make_plot(data, mode, filename, epoch):
-    file_path = 'log/train_process/' + filename
+def make_plot(title, data, mode, path, epoch):
     if mode == 'loss':
-        title = 'LOSS'
-        path = os.path.join(file_path, 'LOSS-' + filename)
+        title = 'LOSS-' + title
     elif mode == 'acc':
-        title = 'ACC曲线'
-        path = os.path.join(file_path, 'ACC-' + filename)
+        title = 'ACC-' + title
+    else:
+        raise ValueError('Invalid plotting mode')
     plt.figure(figsize=(12.8, 9.6))
     x = [i + 1 for i in range(epoch)]
-    plt.plot(x, data)
+    if mode == 'loss':
+        plt.plot(x, data[0])
+        plt.plot(x, data[1])
+        plt.legend(['train', 'val'])
+    else:
+        plt.plot(x, data)
     plt.rcParams['font.sans-serif'] = ['SimHei']
     plt.rcParams['axes.unicode_minus'] = False
-    plt.title(title + '-' + filename, fontsize=20)
+    plt.title(title, fontsize=20)
     plt.xlabel('epoch', fontsize=20)
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
