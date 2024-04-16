@@ -2,7 +2,7 @@
 import traceback
 from models import model_dict
 from configs import *
-from myutils import ini_env, jy_deal, add_log, train_bar, make_plot, write_log
+from myutils import jy_deal, add_log, train_bar, make_plot, write_log
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from torch.optim.lr_scheduler import StepLR

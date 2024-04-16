@@ -1,4 +1,6 @@
 import argparse
+import json
+import torch
 from PIL import Image
 from models import model_dict
 from myutils import *
@@ -38,31 +40,36 @@ class PredictModel(BaseModel):
         predictclass = data_class[int(output.argmax(1))]
         return predictclass
 
-    def ensemble_predict(self):
+    def ensemble_predict(self, model_list, class_dict, img):
+        result_dict = {class_dict[i]: 0 for i in class_dict}
+        file, path = img
+        for model in model_list:
+            result = self.predict_class(path, model, class_dict)
+            result_dict[result] += 1
+        max_key = max(result_dict, key=lambda k: result_dict[k])  # 股价最高的股票名
+        if result_dict[max_key] / len(model_list) >= self.min_pr:
+            ans = max_key
+        else:
+            ans = '未知类别'
+        return ans
+
+    def imgs_predict(self):
         with open("log/class_id.json", 'r', encoding='UTF-8') as f:
             class_dict = json.load(f)
         class_dict = {int(k): class_dict[k] for k in class_dict.keys()}
 
         img_list = [[i, os.path.join(args.predict_path, i)] for i in list(os.walk(args.predict_path))[0][-1]
-                    if i.split('.')[0] != '']
+                    if i.split('.')[0] != '']  # 获取[图片名,图片路径] 列表
+
         model_list = [[i.split('.')[0], os.path.join(self.model_path, i)] for i in list(os.walk(self.model_path))[0][-1]
                       if
-                      i.split('.')[0] != '']
+                      i.split('.')[0] != '']  # 获取[模型名,模型路径] 列表
         model_list = [self.make_model(i[0].split('-')[-1], len(class_dict.keys()), i[1]) for i in model_list]
+        # 获取[模型,模型路径]列表
         for img in img_list:
-            result_dict = {class_dict[i]: 0 for i in class_dict}
-            file, path = img
-            for model in model_list:
-                result = self.predict_class(path, model, class_dict)
-                result_dict[result] += 1
-            max_key = max(result_dict, key=lambda k: result_dict[k])  # 股价最高的股票名
-            if result_dict[max_key] / len(model_list) >= self.min_pr:
-                ans = max_key
-                self.txt_list.append([file, ans])
-                print(f'{file}的预测类别为{ans}')
-            else:
-                self.txt_list.append([file, '未知类别'])
-                print(f'{file}的预测类别为未知类别')
+            ans = self.ensemble_predict(model_list, class_dict, img)
+            self.txt_list.append([img[0], ans])
+            print(f'{img[0]}的预测类别为{ans}')
 
     def write_csv(self):
         date_time = time.strftime('%Y-%m-%d %Hh %Mm %Ss', time.localtime())
@@ -79,5 +86,5 @@ class PredictModel(BaseModel):
 
 if __name__ == '__main__':
     model = PredictModel(args, model_dict)
-    model.ensemble_predict()
+    model.imgs_predict()
     model.write_csv()
