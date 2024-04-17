@@ -2,7 +2,11 @@ import argparse
 import json
 import torch
 from PIL import Image
-from models import model_dict
+import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
 from myutils import *
 from configs import BaseModel
 import openpyxl as op
@@ -83,6 +87,8 @@ class PredictModel(BaseModel):
 
 
 if __name__ == '__main__':
+    from models import model_dict
+
     model = PredictModel(args, model_dict)
     model.imgs_predict()
     model.write_csv()

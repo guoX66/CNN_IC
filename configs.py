@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
+import sys
+import os
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
 from myutils import ini_env
 
 
