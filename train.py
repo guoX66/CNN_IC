@@ -17,7 +17,7 @@ from torch.utils.data import Subset
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='googlenet')
-parser.add_argument('--data', type=str, default='C:/Users/Mikky/Desktop/昆虫爬虫文件下载/insect_data/train')
+parser.add_argument('--data', type=str, default='data/images/train')
 parser.add_argument('--val_present', type=float, default=0.2)
 # parser.add_argument('--name', type=str, default='2024-04-30 13h 19m 50s')
 parser.add_argument('--name', type=str)

@@ -60,7 +60,7 @@ soft模式表示创建软连接进行拆分，default模式表示使用复制方
 在命令行输入以下命令开始训练
 
 ```bash
-python train.py --model resnet18 --data data/images --epoch 100 --batch_size 4 --val_present 0.2 --lr 0.001 --step_size 1 --gamma 0.95 --loss_mode change --num_workers 0
+python train.py --model resnet18 --data data/images/train --epoch 100 --batch_size 4 --val_present 0.2 --lr 0.001 --step_size 1 --gamma 0.95 --loss_mode change --num_workers 0
 ```
 
 此项目可选择使用硬损失（交叉熵损失）和软损失进行训练，change的loss mode代表训练前期使用硬损失，当损失不再单调递减之后转换为软损失，以防止模型在训练后期发生过拟合
