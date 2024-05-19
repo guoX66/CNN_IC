@@ -1,71 +1,100 @@
 import argparse
+import json
+import re
+import torch
 from PIL import Image
+from tqdm import tqdm
 from configs import BaseModel
 from models import model_dict
 from myutils import *
 from torchvision import transforms
+from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader
+from PIL import PngImagePlugin
+
+PngImagePlugin.MAX_TEXT_CHUNK = 1048576 * 10  # this is the current value
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', type=str, default='resnet18')
+parser.add_argument('--name', type=str, default='2024-05-03 12h 40m 51s')
+parser.add_argument('--test', type=str, default='data/static/test')
+parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--num_workers', type=int, default=0)
 args = parser.parse_args()
 
 
 class TestModel(BaseModel):
-    def __init__(self,args, model_dict):
+    def __init__(self, args, model_dict):
         super().__init__(args, model_dict)
-        self.model = args.model
-        self.model_name = 'model-' + self.model
-    def t_img(self, txt_list, model_name):
-        test_imgs = os.path.join(self.imgpath, 'test')
-        with open("log/class_id.json", 'r', encoding='UTF-8') as f:
-            class_dict = json.load(f)
-        class_dict = {int(k): class_dict[k] for k in class_dict.keys()}
-        real_classlist, _, _ = get_label_list(test_imgs)
-        t = time.strftime('%Y年%m月%d日 %Hh:%Mm:%Ss', time.localtime())
-        add_log(f'测试时间：{t}', txt_list)
-        add_log('-' * 43 + '测试错误信息如下' + '-' * 43, txt_list)
-        print()
+        self.img_path = args.test
+        self.batch_size = args.batch_size
+        self.num_workers = args.num_workers
+        self.name = os.path.join('log', 'train_process', args.name)
+        files = os.listdir(self.name)
+        pattern = r"best_model-(.*?).pth"
+        is_match = False
+        for filename in files:
+            match = re.match(pattern, filename)
+            if match:
+                self.model = match.group(1)
+                self.model_name = 'model-' + self.model
+                is_match = True
+                break
+        if not is_match:
+            raise ValueError(f'{args.name} has no model!')
+
+    def t_acc(self, txt_list):
         transform = transforms.Compose([
             transforms.Resize([self.size[0], self.size[1]]),
             transforms.ToTensor(),
             transforms.Normalize(self.ms[0], self.ms[1])
         ])
+        datasets = ImageFolder(self.img_path, transform=transform)
+        total = len(datasets)
+        datasets = DataLoader(datasets, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers,
+                              drop_last=False,
+                              pin_memory=False)
+        with open(f"{self.name}/class_id.json", 'r', encoding='UTF-8') as f:
+            class_dict = json.load(f)
+        class_dict = {int(k): class_dict[k] for k in class_dict.keys()}
+
+        t = time.strftime('%Y %m %d  %Hh:%Mm:%Ss', time.localtime())
+        add_log(f'Time:{t}', txt_list)
+        add_log(f'model:{self.model}', txt_list)
         right_num = 0
         test_num = 0
-        model = self.make_model(self.model, len(class_dict.keys()), f'{model_name}.pth')
+        model = self.make_model(self.model, len(class_dict.keys()), f"{self.name}/best_{self.model_name}.pth")
         model.to(self.device)
         model.eval()
-        for real_classes in real_classlist:
-            real_class = real_classes[0]
-            test_path = f'{test_imgs}/{real_class}/{real_classes[1]}'
-            image = Image.open(test_path).convert('RGB')
-            image = transform(image)
-            image = torch.reshape(image, (1, 3, self.size[0], self.size[1]))  # 修改待预测图片尺寸，需要与训练时一致
-            image = image.to(self.device)
-            with torch.no_grad():
-                output = model(image)
-            predict_class = class_dict[int(output.argmax(1))]
+        top_1 = 0
+        top_5 = 0
+        top_10 = 0
 
-            if predict_class == real_class:
-                right_num = right_num + 1
-            else:
-                is_right = '错误'
-                add_log(f'图片{real_classes[1]}预测类别为{predict_class}，真实类别为{real_class},预测{is_right}',
-                        txt_list)
+        with torch.no_grad():  # 验证数据集时禁止反向传播优化权重
+            for data in tqdm(datasets):
+                imgs, targets = data
+                imgs = imgs.to(self.device)
+                targets = targets.to(self.device)
+                outputs = model(imgs)
+                top_1_tensor, top_1_indices = outputs.topk(k=1, dim=1, largest=True, sorted=True)
+                top_5_tensor, top_5_indices = outputs.topk(k=5, dim=1, largest=True, sorted=True)
+                top_10_tensor, top_10_indices = outputs.topk(k=10, dim=1, largest=True, sorted=True)
+                top_1 += (top_1_indices == targets.unsqueeze(1)).sum().item()
+                top_5 += (top_5_indices == targets.unsqueeze(1).expand_as(top_5_indices)).sum().item()
+                top_10 += (top_10_indices == targets.unsqueeze(1).expand_as(top_10_indices)).sum().item()
+                del imgs, targets
 
-            test_num = test_num + 1
-        add_log(f'模型：{self.model}', txt_list)
-        acc = right_num / test_num * 100
-        add_log(f'测试总数量为{test_num}，错误数量为{test_num - right_num}', txt_list)
-        add_log(f'总预测正确率为{acc}%', txt_list)
-        write_log('log', 'test_log.txt', txt_list)
-        print(f'测试完成,记录保存在log/test_log.txt中')
+        top_1_accuracy = top_1 / total
+        top_5_accuracy = top_5 / total
+        top_10_accuracy = top_10 / total
 
-        return acc
+        add_log(f'Top-1 Accuracy: {top_1_accuracy * 100:.2f}%', txt_list)
+        add_log(f'Top-5 Accuracy: {top_5_accuracy * 100:.2f}%', txt_list)
+        add_log(f'Top-10 Accuracy: {top_10_accuracy * 100:.2f}%', txt_list)
+        write_log(f'{self.name}', f'{self.model_name}_test', txt_list)
+        print(f'测试完成,记录保存在{self.name}/{self.model_name}/test.txt中')
 
 
 if __name__ == '__main__':
     txt_list = []
     model = TestModel(args, model_dict)
-    model_path = f't_model/model-{model.model}'
-    model.t_img(txt_list, model_path)
+    model.t_acc(txt_list)

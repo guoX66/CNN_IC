@@ -1,3 +1,5 @@
+import collections
+
 import torch
 import torch.nn as nn
 import sys
@@ -10,12 +12,12 @@ from myutils import ini_env
 
 class BaseModel:
     def __init__(self, args, model_dict, size=[256, 256], ms=[[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]]):
-        self.imgpath = 'data/images'  # 保存图片的文件名
-        self.foldname = 'data/static'
         self.size = size
         self.ms = ms
         self.model_dict = model_dict
-        self.device, self.gpus, self.num_workers, self.device_name = ini_env()
+        self.device, self.gpus, self.device_name = ini_env()
+
+
 
     def sele_model(self, model):
         return self.model_dict[model]
@@ -41,9 +43,14 @@ class BaseModel:
         in_features = layer_list[-1][1].in_features
         layer1 = nn.Linear(in_features, n)
         self._set_module(model_ft, last_layers_name, layer1)
+        # if path is not None:
+        #     model_ft.load_state_dict(
+        #         {k.replace('module.', ''): v for k, v in torch.load(path).items()})
+        # if isinstance(model_ft, torch.nn.DataParallel):
+        #     model_ft = model_ft.module
         if path is not None:
-            model_ft.load_state_dict(
-                {k.replace('module.', ''): v for k, v in torch.load(path).items()})
-        if isinstance(model_ft, torch.nn.DataParallel):
-            model_ft = model_ft.module
+            model_comment = torch.load(path)
+            if isinstance(model_comment, collections.OrderedDict):
+                model_ft.load_state_dict(
+                    {k.replace('module.', ''): v for k, v in model_comment.items()})
         return model_ft

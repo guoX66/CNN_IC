@@ -1,5 +1,8 @@
 import shutil
 import sys
+
+import numpy as np
+import pandas as pd
 import pynvml
 import os
 import matplotlib.pyplot as plt
@@ -71,7 +74,7 @@ def get_gpu_usage(gpu_id):
 
 def train_bar(args):
     pynvml.nvmlInit()
-    t_epoch, t_batch, start, epoch, batch, train_loss, loss, acc = args
+    t_epoch, t_batch, start, epoch, batch, train_loss, loss, acc, start_epoch = args
     # 获取GPU句柄，这里假设你只有一个GPU
     l = 30
     f_p = epoch / t_epoch
@@ -89,21 +92,8 @@ def train_bar(args):
 
     dur = time.perf_counter() - start
     finish_epoch = epoch - 1 + f_p_b
-    res = (t_epoch - finish_epoch) / (finish_epoch / dur)
+    res = (t_epoch - start_epoch - finish_epoch) / ((finish_epoch - start_epoch) / dur)
 
-    a = ("%-11s" + "%-15s" + "%-11s" * 2 + "%-17s" + "%-11s" * 2 + "%-33s" + "%-20s") % (
-        "Epoch",
-        "GPU0_men",
-        "GPU0_use",
-        "batch_loss",
-        "batch_process",
-        "val_loss",
-        "val_acc",
-        "epoch_process",
-        "time"
-    )
-    if epoch <= 1 and batch <= 1:
-        print(a)
     # 获取GPU利用率和内存占用率
     gpu_util, gpu_mem_use, gpu_mem_total = get_gpu_usage(0)
     gpu_mem_util = str(gpu_mem_use) + '/' + str(gpu_mem_total) + 'GB'
@@ -116,8 +106,10 @@ def train_bar(args):
     proc = "\r{:10s} {:14s} {:10s} {:10s} {:16s} {:10s} {:10s} {:31s} {:.2f}s/{:.2f}s".format(
         epochs, gpu_mem_util, gpu_util, str(train_loss), batch_process, str(loss), str(acc), e_process, dur,
         res)
+    # print(proc, end='')
     sys.stdout.write(proc)
     sys.stdout.flush()
+    # time.sleep(0.01)
     if epoch == t_epoch and batch == t_batch:
         print()
 
@@ -155,11 +147,7 @@ def ini_env():
         device = torch.device('cpu')
         gpus = []
     os_name = str(platform.system())
-    if os_name == 'Windows':
-        num_workers = 0
-    else:
-        num_workers = 32
-    return device, gpus, num_workers, device_name
+    return device, gpus, device_name
 
 
 def make_dir(path):
@@ -199,20 +187,16 @@ def jy_deal(path, mode, dic=None):
 
 
 def make_plot(title, data, mode, path, epoch):
-    if mode == 'loss':
-        title = 'LOSS-' + title
-    elif mode == 'acc':
-        title = 'ACC-' + title
-    else:
-        raise ValueError('Invalid plotting mode')
     plt.figure(figsize=(12.8, 9.6))
     x = [i + 1 for i in range(epoch)]
     if mode == 'loss':
         plt.plot(x, data[0])
         plt.plot(x, data[1])
         plt.legend(['train', 'val'])
-    else:
+    elif mode == 'acc':
         plt.plot(x, data)
+    else:
+        raise ValueError('Invalid plotting mode')
     plt.rcParams['font.sans-serif'] = ['SimHei']
     plt.rcParams['axes.unicode_minus'] = False
     plt.title(title, fontsize=20)
@@ -220,3 +204,14 @@ def make_plot(title, data, mode, path, epoch):
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
     plt.savefig(f'{path}.png')
+
+
+def save_csv(path, t, train_loss, val_loss, acc, current_lr):
+    train_loss = np.array(train_loss).reshape(1, 1)
+    val_loss = np.array(val_loss).reshape(1, 1)
+    acc = np.array(acc).reshape(1, 1)
+    t = np.array(t).reshape(1, 1)
+    current_lr = np.array(current_lr).reshape(1, 1)
+    t_data = np.hstack((t, train_loss, val_loss, acc, current_lr)).reshape(1, -1)
+    loss_save = pd.DataFrame(t_data)
+    loss_save.to_csv(path, index=False, header=False, mode='a')
